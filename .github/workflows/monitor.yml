@@ -1,0 +1,46 @@
+name: SA Inspection Booking Monitor
+
+on:
+  schedule:
+    # Runs every 10 minutes between 9:30pm–7:30am UTC
+    # which is 7:00am–5:00pm Adelaide time (ACST = UTC+9:30)
+    - cron: '0,10,20,30,40,50 21,22,23 * * *'   # 9:30pm–11:59pm UTC (7am–9:30am ACST)
+    - cron: '0,10,20,30,40,50 0,1,2,3,4,5,6 * * *'  # midnight–6:59am UTC (9:30am–4:30pm ACST)
+    - cron: '0,10,20,30 7 * * *'                 # 7:00am–7:30am UTC (4:30pm–5pm ACST)
+  workflow_dispatch:  # allows you to manually trigger it from GitHub if needed
+
+jobs:
+  check-booking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests
+
+      - name: Run booking monitor
+        env:
+          LICENCE_NUMBER:  ${{ secrets.LICENCE_NUMBER }}
+          DATE_OF_BIRTH:   ${{ secrets.DATE_OF_BIRTH }}
+          LAST_NAME:       ${{ secrets.LAST_NAME }}
+          GMAIL_ADDRESS:   ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL:    ${{ secrets.NOTIFY_EMAIL }}
+        run: python monitor.py
+
+      - name: Upload results CSV as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ github.run_number }}
+          path: results.csv
+          if-no-files-found: ignore
