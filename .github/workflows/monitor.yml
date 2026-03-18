@@ -3,11 +3,12 @@ name: SA Inspection Booking Monitor
 on:
   schedule:
     - cron: '*/5 * * * *'    # every 5 minutes, 24/7
-    - cron: '30 7 * * *'     # 5:00pm Adelaide time (ACST = UTC+9:30) daily summary
+    - cron: '30 7 * * *'     # 5:00pm Adelaide time daily summary
   workflow_dispatch:
     inputs:
-      daily_summary:
-        description: 'Send daily summary'
+      force_daily_summary:
+        description: 'Force daily summary email? (true/false)'
+        required: false
         default: 'false'
 
 jobs:
@@ -32,9 +33,8 @@ jobs:
         run: pip install requests python-dateutil
 
       - name: Set daily summary flag
-        id: summary_flag
         run: |
-          if [ "${{ github.event.schedule }}" = "30 7 * * *" ]; then
+          if [ "${{ github.event.schedule }}" = "30 7 * * *" ] || [ "${{ github.event.inputs.force_daily_summary }}" = "true" ]; then
             echo "DAILY_SUMMARY=true" >> $GITHUB_ENV
           else
             echo "DAILY_SUMMARY=false" >> $GITHUB_ENV
