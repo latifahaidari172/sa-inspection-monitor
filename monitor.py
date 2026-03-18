@@ -140,6 +140,7 @@ def extract_select_options(html: str) -> list:
         ):
             val  = opt_m.group(1).strip()
             text = re.sub(r'<[^>]+>', '', opt_m.group(2)).strip()
+            text = text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').strip()
             options.append((sel_name, val, text))
     return options
 
@@ -315,3 +316,60 @@ def run():
 
 if __name__ == "__main__":
     run()
+
+# ── Patch run() to include daily summary ──────────────────────────────────────
+_original_run = run
+
+def run():
+    import os as _os
+
+    licence        = get_env("LICENCE_NUMBER")
+    dob            = format_dob(get_env("DATE_OF_BIRTH"))
+    last_name      = get_env("LAST_NAME")
+    gmail_addr     = get_env("GMAIL_ADDRESS")
+    gmail_pass     = get_env("GMAIL_APP_PASSWORD")
+    notify_addr    = get_env("NOTIFY_EMAIL")
+    daily_summary  = _os.environ.get("DAILY_SUMMARY", "false").lower() == "true"
+
+    _original_run()
+
+    if daily_summary:
+        log("Sending daily 5pm summary email...")
+        now       = datetime.now()
+        today_str = now.strftime("%d/%m/%Y")
+        today_slots  = []
+        today_checks = 0
+
+        if CSV_FILE.exists():
+            with open(CSV_FILE, newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("Date") == today_str:
+                        today_checks += 1
+                        if row.get("Result") not in ("No slots", "Error", ""):
+                            today_slots.append(
+                                f"  {row['Time']} — {row['Result']}: {row['Detail']}"
+                            )
+
+        slots_section = (
+            "Slots seen today:\n\n" + "\n".join(today_slots)
+            if today_slots
+            else "No slots were seen today — the dropdown was empty all day."
+        )
+
+        body = (
+            f"Daily summary for {today_str}\n"
+            f"{'=' * 40}\n\n"
+            f"Total checks run today: {today_checks}\n\n"
+            f"{slots_section}\n\n"
+            f"The monitor checks every 5 minutes and will automatically\n"
+            f"book the first slot before 22/04/2026.\n\n"
+            f"View full history: open results.csv in your GitHub repository."
+        )
+
+        send_email(
+            f"📋 SA Inspection Daily Summary — {today_str}",
+            body,
+            gmail_addr, gmail_pass, notify_addr
+        )
+        log("Daily summary sent.")
