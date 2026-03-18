@@ -5,6 +5,10 @@ on:
     - cron: '*/5 * * * *'    # every 5 minutes, 24/7
     - cron: '30 7 * * *'     # 5:00pm Adelaide time (ACST = UTC+9:30) daily summary
   workflow_dispatch:
+    inputs:
+      daily_summary:
+        description: 'Send daily summary'
+        default: 'false'
 
 jobs:
   check-booking:
@@ -27,6 +31,15 @@ jobs:
       - name: Install dependencies
         run: pip install requests python-dateutil
 
+      - name: Set daily summary flag
+        id: summary_flag
+        run: |
+          if [ "${{ github.event.schedule }}" = "30 7 * * *" ]; then
+            echo "DAILY_SUMMARY=true" >> $GITHUB_ENV
+          else
+            echo "DAILY_SUMMARY=false" >> $GITHUB_ENV
+          fi
+
       - name: Run booking monitor
         env:
           LICENCE_NUMBER:      ${{ secrets.LICENCE_NUMBER }}
@@ -35,7 +48,7 @@ jobs:
           GMAIL_ADDRESS:       ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL:        ${{ secrets.NOTIFY_EMAIL }}
-          DAILY_SUMMARY:       ${{ github.event.schedule == '30 7 * * *' && 'true' || 'false' }}
+          DAILY_SUMMARY:       ${{ env.DAILY_SUMMARY }}
         run: python monitor.py
 
       - name: Save results.csv back to repository
