@@ -58,7 +58,7 @@ PLACEHOLDER_OPTIONS = {
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 def log(msg: str, level: str = "INFO"):
-    ts = adelaide_now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = adelaide_now().strftime("%d/%m/%Y %I:%M:%S %p")
     print(f"[{ts}] [{level}] {msg}", flush=True)
 
 
@@ -83,7 +83,7 @@ def write_csv_row(check_time: datetime, result: str, detail: str = ""):
             writer.writerow(["Date", "Time", "Result", "Detail"])
         writer.writerow([
             check_time.strftime("%d/%m/%Y"),
-            check_time.strftime("%H:%M:%S"),
+            check_time.strftime("%I:%M:%S %p"),
             result,
             detail
         ])
