@@ -2,7 +2,8 @@ name: SA Inspection Booking Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes, 24/7
+    - cron: '*/5 * * * *'    # every 5 minutes, 24/7
+    - cron: '30 7 * * *'     # 5:00pm Adelaide time (ACST = UTC+9:30) daily summary
   workflow_dispatch:
 
 jobs:
@@ -34,6 +35,7 @@ jobs:
           GMAIL_ADDRESS:       ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD:  ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAIL:        ${{ secrets.NOTIFY_EMAIL }}
+          DAILY_SUMMARY:       ${{ github.event.schedule == '30 7 * * *' && 'true' || 'false' }}
         run: python monitor.py
 
       - name: Save results.csv back to repository
