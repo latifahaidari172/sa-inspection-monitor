@@ -278,8 +278,33 @@ def check_for_slots(licence: str, dob_raw: str, last_name: str,
             shots.append(screenshot(driver, "04_page2"))
             time.sleep(2)
 
-            # ── Step 5: Page 2 — preferred date, click Next again ────────────
+            # ── Step 5: Page 2 — fill preferred date and click Next ──────────
             log(f"Page 2 title: {driver.title}")
+
+            # Calculate 3 months from today in DDMMYYYY format
+            from dateutil.relativedelta import relativedelta
+            preferred = datetime.now() + relativedelta(months=3)
+            preferred_str = preferred.strftime("%d%m%Y")
+            log(f"Preferred date (3 months from today): {preferred_str}")
+
+            # Try to fill the preferred date field
+            filled_date = False
+            for field_name in ["preferredDate", "preferred_date", "inspectionDate",
+                                "bookingDate", "appointmentDate", "prefDate",
+                                "searchMadeFromDate", "preferredInspectionDate"]:
+                if fill_field_by_name(driver, field_name, preferred_str):
+                    filled_date = True
+                    break
+
+            if not filled_date:
+                # Log all inputs on page 2 so we can see the field name
+                log("Preferred date field not found — logging all inputs on page 2:", "WARN")
+                for inp in driver.find_elements(By.TAG_NAME, "input"):
+                    log(f"  name='{inp.get_attribute('name')}' "
+                        f"type='{inp.get_attribute('type')}' "
+                        f"value='{inp.get_attribute('value')}'", "WARN")
+
+            shots.append(screenshot(driver, "05_page2_date_filled"))
             click_next_button(driver, wait)
             time.sleep(3)
 
