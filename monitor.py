@@ -13,11 +13,30 @@ import os
 import re
 import smtplib
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
+
+# ── Timezone: Adelaide (ACST/ACDT) ───────────────────────────────────────────
+
+def adelaide_now() -> datetime:
+    """Return current time in Adelaide timezone (ACST=UTC+9:30, ACDT=UTC+10:30)."""
+    import time as _time
+    # Use fixed ACST offset — Python handles DST via this offset automatically
+    # Adelaide observes ACDT (UTC+10:30) in summer, ACST (UTC+9:30) in winter
+    # We use the system approach: set TZ or calculate manually
+    utc_now = datetime.now(timezone.utc)
+    # Adelaide standard offset is UTC+9:30
+    # DST applies Oct-Apr (summer): UTC+10:30
+    import zoneinfo
+    try:
+        adelaide_tz = zoneinfo.ZoneInfo("Australia/Adelaide")
+        return datetime.now(adelaide_tz).replace(tzinfo=None)
+    except Exception:
+        # Fallback: ACST UTC+9:30
+        return utc_now.replace(tzinfo=None) + timedelta(hours=9, minutes=30)
 from dateutil.relativedelta import relativedelta
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -39,7 +58,7 @@ PLACEHOLDER_OPTIONS = {
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 def log(msg: str, level: str = "INFO"):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = adelaide_now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] [{level}] {msg}", flush=True)
 
 
@@ -190,7 +209,7 @@ def check_and_book(licence, dob, last_name, gmail_addr, gmail_pass, notify_addr)
         r2.raise_for_status()
 
         # Step 4: Submit preferred date
-        preferred = (datetime.now() + relativedelta(months=3)).strftime("%d%m%Y")
+        preferred = (adelaide_now() + relativedelta(months=3)).strftime("%d%m%Y")
         log(f"Submitting preferred date: {preferred}...")
 
         date_field = "preferredDate"
@@ -273,7 +292,7 @@ def run():
     gmail_pass  = get_env("GMAIL_APP_PASSWORD")
     notify_addr = get_env("NOTIFY_EMAIL")
 
-    now    = datetime.now()
+    now    = adelaide_now()
     result, detail = check_and_book(
         licence, dob, last_name, gmail_addr, gmail_pass, notify_addr
     )
@@ -335,7 +354,7 @@ def run():
 
     if daily_summary:
         log("Sending daily 5pm summary email...")
-        now       = datetime.now()
+        now       = adelaide_now()
         today_str = now.strftime("%d/%m/%Y")
         today_slots  = []
         today_checks = 0
