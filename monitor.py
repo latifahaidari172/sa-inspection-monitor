@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 SA Vehicle Inspection Booking Monitor
-Opens the reschedule page directly, fills in:
-  - Licence/Client Number
-  - Surname/Organisation Name
-  - Date of Birth (DDMMCCYY — no slashes)
-Then checks the times dropdown and emails screenshots.
+1. Opens the SA Transport homepage
+2. Clicks "Reschedule a Vehicle Inspection Booking"
+3. Fills in Licence/Client Number, Surname, Date of Birth
+4. Checks the times dropdown for available slots
+5. Emails screenshots every run
 """
 
 import os
@@ -28,7 +28,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-BOOKING_URL = "https://www.ecom.transport.sa.gov.au/et/rescheduleAVehicleInspectionBooking.do"
+HOME_URL    = "https://www.ecom.transport.sa.gov.au/et/welcome.jsp"
 CSV_FILE    = Path(__file__).parent / "results.csv"
 SHOT_DIR    = Path(__file__).parent / "screenshots"
 
@@ -56,16 +56,8 @@ def get_env(key: str) -> str:
 # ── Format DOB ────────────────────────────────────────────────────────────────
 
 def format_dob(dob: str) -> str:
-    """
-    Convert any common DOB format to DDMMCCYY (no separators).
-    Accepts: DD/MM/YYYY, DD-MM-YYYY, DDMMYYYY, DDMMCCYY
-    e.g. 25/03/1985 -> 25031985
-    """
-    # Strip any non-digit characters
+    """Strip non-digits to get DDMMYYYY format."""
     digits = "".join(c for c in dob if c.isdigit())
-    if len(digits) == 8:
-        return digits  # already DDMMYYYY or DDMMCCYY
-    log(f"Unexpected DOB format '{dob}' — using as-is after stripping non-digits.", "WARN")
     return digits
 
 
@@ -167,42 +159,40 @@ def make_driver() -> webdriver.Chrome:
     return driver
 
 
-def find_input_by_label(driver, *label_texts):
+def fill_field(driver, value: str, *identifiers) -> str | None:
     """
-    Find an input by looking for a label whose text contains any of the
-    given strings, then return the associated input field.
-    Also tries direct name/id attribute matching as fallback.
+    Try to fill a field by label text first, then by name/id.
+    Returns the field name if successful, None if not found.
     """
-    for label_text in label_texts:
-        # Method 1: find label containing text, get its 'for' attribute
+    # Method 1: find by label text
+    for text in identifiers:
         try:
-            label = driver.find_element(
+            el = driver.find_element(
                 By.XPATH,
-                f"//label[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{label_text.lower()}')]"
-            )
-            for_id = label.get_attribute("for")
-            if for_id:
-                try:
-                    return driver.find_element(By.ID, for_id)
-                except NoSuchElementException:
-                    pass
-        except NoSuchElementException:
-            pass
-
-        # Method 2: input near a td/th containing the label text
-        try:
-            return driver.find_element(
-                By.XPATH,
-                f"//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{label_text.lower()}')]"
+                f"//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{text.lower()}')]"
                 f"/following::input[1]"
             )
+            el.clear()
+            el.send_keys(value)
+            return el.get_attribute("name") or el.get_attribute("id") or text
         except NoSuchElementException:
             pass
 
-    raise NoSuchElementException(f"No input found near labels: {label_texts}")
+    # Method 2: find by name/id attribute
+    for ident in identifiers:
+        for attr in ["name", "id"]:
+            try:
+                el = driver.find_element(By.XPATH, f"//input[@{attr}='{ident}']")
+                el.clear()
+                el.send_keys(value)
+                return ident
+            except NoSuchElementException:
+                pass
+
+    return None
 
 
-def click_next(driver, wait):
+def click_next(driver, wait) -> bool:
     try:
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//input[@type='submit'] | "
@@ -216,7 +206,7 @@ def click_next(driver, wait):
             "         contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'continue') or "
             "         contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'search')]"
         )))
-        log(f"Clicking button: '{btn.get_attribute('value') or btn.text}'")
+        log(f"Clicking: '{btn.get_attribute('value') or btn.text}'")
         btn.click()
         time.sleep(3)
         return True
@@ -236,155 +226,135 @@ def check_for_slots(licence: str, dob_raw: str, last_name: str,
     shots  = []
 
     try:
-        # ── Load page ─────────────────────────────────────────────────────────
-        log(f"Opening booking page...")
-        driver.get(BOOKING_URL)
+        # ── Step 1: Load homepage ─────────────────────────────────────────────
+        log(f"Loading homepage: {HOME_URL}")
+        driver.get(HOME_URL)
         time.sleep(3)
         log(f"Title: {driver.title} | URL: {driver.current_url}")
-        shots.append(screenshot(driver, "01_page_loaded"))
+        shots.append(screenshot(driver, "01_homepage"))
 
-        # Log ALL input fields and their names so we can see exactly what's there
-        all_inputs = driver.find_elements(By.TAG_NAME, "input")
-        log(f"All input fields on page:")
-        for inp in all_inputs:
-            log(f"  name='{inp.get_attribute('name')}' "
-                f"id='{inp.get_attribute('id')}' "
-                f"type='{inp.get_attribute('type')}' "
-                f"placeholder='{inp.get_attribute('placeholder')}'")
+        # Log all links on the page so we can see what's available
+        all_links = driver.find_elements(By.TAG_NAME, "a")
+        log("Links on homepage:")
+        for link in all_links:
+            log(f"  '{link.text.strip()}' -> {link.get_attribute('href')}")
 
-        # Log all labels too
-        all_labels = driver.find_elements(By.TAG_NAME, "label")
-        log(f"All labels on page:")
-        for lbl in all_labels:
-            log(f"  text='{lbl.text.strip()}' for='{lbl.get_attribute('for')}'")
-
-        # ── Fill Licence/Client Number ────────────────────────────────────────
-        filled_licence = False
-        try:
-            f = find_input_by_label(driver, "licence", "client number", "licen")
-            f.clear()
-            f.send_keys(licence)
-            log(f"Filled licence: field name='{f.get_attribute('name')}'")
-            filled_licence = True
-        except NoSuchElementException:
-            log("Licence field not found via label — trying direct name/id match", "WARN")
-            for attr_val in ["licenceNumber", "licence_number", "licNo", "clientNumber",
-                             "client_number", "licenceClientNumber", "licenceNo",
-                             "driverLicenceNumber", "licence", "clientNo"]:
-                try:
-                    for attr in ["name", "id"]:
-                        f = driver.find_element(By.XPATH, f"//input[@{attr}='{attr_val}']")
-                        f.clear()
-                        f.send_keys(licence)
-                        log(f"Filled licence via {attr}='{attr_val}'")
-                        filled_licence = True
-                        break
-                except NoSuchElementException:
-                    continue
-                if filled_licence:
-                    break
-
-        # ── Fill Surname ──────────────────────────────────────────────────────
-        filled_surname = False
-        try:
-            f = find_input_by_label(driver, "surname", "organisation name", "last name")
-            f.clear()
-            f.send_keys(last_name)
-            log(f"Filled surname: field name='{f.get_attribute('name')}'")
-            filled_surname = True
-        except NoSuchElementException:
-            log("Surname field not found via label — trying direct name/id match", "WARN")
-            for attr_val in ["surname", "lastName", "last_name", "familyName",
-                             "organisationName", "surnameName", "Surname"]:
-                try:
-                    for attr in ["name", "id"]:
-                        f = driver.find_element(By.XPATH, f"//input[@{attr}='{attr_val}']")
-                        f.clear()
-                        f.send_keys(last_name)
-                        log(f"Filled surname via {attr}='{attr_val}'")
-                        filled_surname = True
-                        break
-                except NoSuchElementException:
-                    continue
-                if filled_surname:
-                    break
-
-        # ── Fill Date of Birth (DDMMCCYY) ─────────────────────────────────────
-        filled_dob = False
-        try:
-            f = find_input_by_label(driver, "date of birth", "dob", "birth")
-            f.clear()
-            f.send_keys(dob)
-            log(f"Filled DOB ({dob}): field name='{f.get_attribute('name')}'")
-            filled_dob = True
-        except NoSuchElementException:
-            log("DOB field not found via label — trying direct name/id match", "WARN")
-            for attr_val in ["dateOfBirth", "dob", "birthDate", "date_of_birth",
-                             "DOB", "birthdate", "dateofbirth"]:
-                try:
-                    for attr in ["name", "id"]:
-                        f = driver.find_element(By.XPATH, f"//input[@{attr}='{attr_val}']")
-                        f.clear()
-                        f.send_keys(dob)
-                        log(f"Filled DOB via {attr}='{attr_val}'")
-                        filled_dob = True
-                        break
-                except NoSuchElementException:
-                    continue
-                if filled_dob:
-                    break
-
-        shots.append(screenshot(driver, "02_form_filled"))
-
-        if not any([filled_licence, filled_surname, filled_dob]):
-            log("Could not fill ANY fields — page may have changed.", "ERROR")
-
-        # ── Submit ────────────────────────────────────────────────────────────
-        if not click_next(driver, wait):
-            log("Submit button not found.", "WARN")
-            shots.append(screenshot(driver, "03_no_submit_button"))
-        else:
-            log(f"Form submitted. New URL: {driver.current_url}")
-            shots.append(screenshot(driver, "03_after_submit"))
-
-            time.sleep(2)
-
-            # ── Page 2: preferred date — just submit it ───────────────────────
-            log(f"Page 2 title: {driver.title}")
-            shots.append(screenshot(driver, "04_page2"))
-
-            if click_next(driver, wait):
-                log(f"Page 2 submitted. URL: {driver.current_url}")
+        # ── Step 2: Click "Reschedule a Vehicle Inspection Booking" ──────────
+        clicked = False
+        link_texts = [
+            "reschedule a vehicle inspection booking",
+            "reschedule a vehicle inspection",
+            "reschedule",
+            "vehicle inspection booking",
+            "inspection booking",
+        ]
+        for text in link_texts:
+            try:
+                link = driver.find_element(
+                    By.XPATH,
+                    f"//a[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'{text}')]"
+                )
+                log(f"Found link: '{link.text.strip()}' — clicking it")
+                link.click()
                 time.sleep(3)
-                shots.append(screenshot(driver, "05_times_page"))
+                clicked = True
+                break
+            except NoSuchElementException:
+                continue
+
+        if not clicked:
+            log("Could not find the reschedule link on homepage!", "ERROR")
+            shots.append(screenshot(driver, "02_link_not_found"))
+        else:
+            log(f"Clicked reschedule link. New URL: {driver.current_url}")
+            shots.append(screenshot(driver, "02_booking_form"))
+
+            # Log all input fields on the booking form
+            all_inputs = driver.find_elements(By.TAG_NAME, "input")
+            log("Input fields on booking form:")
+            for inp in all_inputs:
+                log(f"  name='{inp.get_attribute('name')}' "
+                    f"id='{inp.get_attribute('id')}' "
+                    f"type='{inp.get_attribute('type')}' "
+                    f"placeholder='{inp.get_attribute('placeholder')}'")
+
+            # ── Step 3: Fill Licence/Client Number ───────────────────────────
+            result = fill_field(driver, licence,
+                "licence", "client number", "licen",
+                "licenceNumber", "licence_number", "licNo",
+                "clientNumber", "client_number", "licenceClientNumber",
+                "licenceNo", "driverLicenceNumber", "clientNo")
+            if result:
+                log(f"Filled licence into field: '{result}'")
             else:
-                log("No button on page 2 — may already be on times page.")
-                shots.append(screenshot(driver, "05_times_page"))
+                log("Could not fill licence field!", "WARN")
 
-            # ── Read times dropdown ───────────────────────────────────────────
-            log(f"Times page title: {driver.title}")
-            selects = driver.find_elements(By.TAG_NAME, "select")
-            log(f"Dropdowns found: {len(selects)}")
-
-            for sel_el in selects:
-                sel_name = sel_el.get_attribute("name")
-                log(f"Dropdown: name='{sel_name}'")
-                try:
-                    select = Select(sel_el)
-                    for opt in select.options:
-                        t = opt.text.strip()
-                        v = opt.get_attribute("value") or ""
-                        log(f"  Option: '{t}' value='{v}'")
-                        if (t.lower() not in PLACEHOLDER_OPTIONS
-                                and v not in ("", "0", "-1", "null", "none", "NULL")):
-                            slots.append(t)
-                except Exception as e:
-                    log(f"Error reading dropdown: {e}", "WARN")
-
-            if slots:
-                log(f"SLOTS FOUND: {slots}")
+            # ── Step 4: Fill Surname ──────────────────────────────────────────
+            result = fill_field(driver, last_name,
+                "surname", "organisation name", "last name",
+                "lastName", "last_name", "familyName",
+                "organisationName", "surnameName", "Surname")
+            if result:
+                log(f"Filled surname into field: '{result}'")
             else:
-                log("No slots available.")
+                log("Could not fill surname field!", "WARN")
+
+            # ── Step 5: Fill Date of Birth ────────────────────────────────────
+            result = fill_field(driver, dob,
+                "date of birth", "dob", "birth",
+                "dateOfBirth", "birthDate", "date_of_birth", "DOB")
+            if result:
+                log(f"Filled DOB ({dob}) into field: '{result}'")
+            else:
+                log("Could not fill DOB field!", "WARN")
+
+            shots.append(screenshot(driver, "03_form_filled"))
+
+            # ── Step 6: Submit the form ───────────────────────────────────────
+            if not click_next(driver, wait):
+                log("Submit button not found!", "WARN")
+                shots.append(screenshot(driver, "04_no_submit_button"))
+            else:
+                log(f"Form submitted. URL: {driver.current_url}")
+                shots.append(screenshot(driver, "04_after_submit"))
+                time.sleep(2)
+
+                # ── Step 7: Page 2 - preferred date, just submit ──────────────
+                log(f"Page 2 title: {driver.title}")
+                shots.append(screenshot(driver, "05_page2"))
+
+                if click_next(driver, wait):
+                    log(f"Page 2 submitted. URL: {driver.current_url}")
+                    time.sleep(3)
+                else:
+                    log("No button on page 2 — may already be on times page.")
+
+                shots.append(screenshot(driver, "06_times_page"))
+
+                # ── Step 8: Read times dropdown ───────────────────────────────
+                log(f"Times page title: {driver.title}")
+                selects = driver.find_elements(By.TAG_NAME, "select")
+                log(f"Dropdowns found: {len(selects)}")
+
+                for sel_el in selects:
+                    sel_name = sel_el.get_attribute("name")
+                    log(f"Dropdown: name='{sel_name}'")
+                    try:
+                        select = Select(sel_el)
+                        for opt in select.options:
+                            t = opt.text.strip()
+                            v = opt.get_attribute("value") or ""
+                            log(f"  Option: '{t}' value='{v}'")
+                            if (t.lower() not in PLACEHOLDER_OPTIONS
+                                    and v not in ("", "0", "-1", "null", "none", "NULL")):
+                                slots.append(t)
+                    except Exception as e:
+                        log(f"Error reading dropdown: {e}", "WARN")
+
+                if slots:
+                    log(f"SLOTS FOUND: {slots}")
+                else:
+                    log("No slots available.")
 
     except Exception as e:
         log(f"Error: {e}", "ERROR")
@@ -401,17 +371,18 @@ def check_for_slots(licence: str, dob_raw: str, last_name: str,
     if slots:
         subject = f"SA Inspection Slot Available — {len(slots)} slot(s) found!"
         body    = (
-            f"Great news! Available inspection slot(s):\n\n"
+            "Great news! Available inspection slot(s):\n\n"
             + "\n".join(f"• {s}" for s in slots)
-            + f"\n\nBook now: {BOOKING_URL}\n\n"
+            + f"\n\nAct fast — book now:\n"
+            + "https://www.ecom.transport.sa.gov.au/et/welcome.jsp\n\n"
             + "Screenshots from this check are below."
         )
     else:
         subject = "SA Inspection Monitor — check complete (no slots yet)"
         body    = (
-            "The monitor ran. No slots available yet.\n\n"
-            "Screenshots from each step are below so you can see what it's doing.\n"
-            "You'll get an email the moment a slot appears."
+            "The monitor ran successfully. No slots available yet.\n\n"
+            "Screenshots from each step are below.\n"
+            "You will get an email the moment a slot appears."
         )
 
     send_email(subject, body, gmail_addr, gmail_pass, notify_addr, shots)
