@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install selenium requests
+          pip install selenium requests python-dateutil
 
       - name: Run booking monitor
         env:
