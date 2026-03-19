@@ -75,18 +75,21 @@ def format_dob(dob: str) -> str:
 
 # ── CSV ───────────────────────────────────────────────────────────────────────
 
-def write_csv_row(check_time: datetime, result: str, detail: str = ""):
-    file_exists = CSV_FILE.exists()
-    with open(CSV_FILE, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["Date", "Time", "Result", "Detail"])
-        writer.writerow([
-            check_time.strftime("%d/%m/%Y"),
-            check_time.strftime("%I:%M:%S %p"),
-            result,
-            detail
-        ])
+def write_csv_row(check_time: datetime, result: str, detail: str = "", keep: int = 60):
+    header = ["Date", "Time", "Result", "Detail"]
+    new_row = [check_time.strftime("%d/%m/%Y"), check_time.strftime("%I:%M:%S %p"), result, detail]
+    rows = []
+    if CSV_FILE.exists():
+        with open(CSV_FILE, newline="") as f:
+            rows = list(csv.reader(f))
+        if rows and rows[0] == header:
+            rows = rows[1:]
+    rows.append(new_row)
+    rows = rows[-keep:]
+    with open(CSV_FILE, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
 
 # ── Email ─────────────────────────────────────────────────────────────────────
 
